@@ -1,11 +1,11 @@
-# GroundedDoc-AI: Enterprise Document QA & Semantic RAG System
+# DocuMind: Enterprise Document Intelligence & Semantic Search Engine
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/Status-Production--Ready-success.svg)]()
 
-A high-performance, enterprise-grade **Retrieval-Augmented Generation (RAG)** platform engineered with **FastAPI**, recursive text chunking, dense vector embeddings (`bge-small-en-v1.5`), similarity search, and source-grounded LLM synthesis.
+A high-performance, enterprise-grade **Document Intelligence & Semantic Search** platform engineered with **FastAPI**, recursive text chunking, dense vector embeddings (`bge-small-en-v1.5`), similarity search, and source-grounded LLM synthesis.
 
 Built by **Mishael Dioneda Oliva** ([GitHub](https://github.com/MishaelOliva) | [LinkedIn](https://linkedin.com/in/mishael-oliva)).
 
@@ -99,8 +99,8 @@ RAG/
 ### 1. Clone & Setup Environment
 
 ```bash
-git clone https://github.com/MishaelOliva/grounded-doc-ai.git
-cd grounded-doc-ai
+git clone https://github.com/MishaelOliva/documind-ai.git
+cd documind-ai
 
 # Create virtual environment with uv (or standard venv)
 uv venv
