@@ -1,0 +1,92 @@
+[
+  {
+    "id": "q01",
+    "question": "What are the approved cloud LLM APIs for corporate development?",
+    "expected_keywords": ["Google Gemini", "Microsoft Foundry SDK", "TLS 1.3"],
+    "section": "Section 2.1"
+  },
+  {
+    "id": "q02",
+    "question": "Which local LLM architectures are authorized for air-gapped development?",
+    "expected_keywords": ["Qwen 2.5", "Llama 3", "Ollama", "BitLocker"],
+    "section": "Section 2.2"
+  },
+  {
+    "id": "q03",
+    "question": "Can proprietary source code be uploaded to consumer web chatbots?",
+    "expected_keywords": ["strictly prohibited", "unauthorized third-party", "consumer web"],
+    "section": "Section 2.3"
+  },
+  {
+    "id": "q04",
+    "question": "What type of data is classified as Tier 1 Highly Confidential?",
+    "expected_keywords": ["Customer Personally Identifiable Information", "PII", "payment card", "session tokens"],
+    "section": "Section 3.1"
+  },
+  {
+    "id": "q05",
+    "question": "What are the storage encryption requirements for internal technical documentation in vector databases?",
+    "expected_keywords": ["AES-256 encryption at rest", "Entra ID", "Azure AD"],
+    "section": "Section 3.2"
+  },
+  {
+    "id": "q06",
+    "question": "What is the maximum token chunking limit for internal RAG vector databases?",
+    "expected_keywords": ["1024 tokens", "Chunking windows"],
+    "section": "Section 3.2"
+  },
+  {
+    "id": "q07",
+    "question": "What is the mandatory chunking strategy for production RAG pipelines?",
+    "expected_keywords": ["sliding window overlap", "10%", "Recursive boundary splitting"],
+    "section": "Section 4.1"
+  },
+  {
+    "id": "q08",
+    "question": "When must a RAG model decline to answer to prevent hallucinations?",
+    "expected_keywords": ["cosine similarity", "0.35", "lacks unambiguous factual backing"],
+    "section": "Section 4.2"
+  },
+  {
+    "id": "q09",
+    "question": "How should RAG completions be validated for enterprise workflows?",
+    "expected_keywords": ["structured schemas", "Pydantic", "strict JSON output"],
+    "section": "Section 4.3"
+  },
+  {
+    "id": "q10",
+    "question": "What is the deadline for filing a security incident if confidential data is leaked to an external model?",
+    "expected_keywords": ["two (2) hours", "ITSM portal", "SecOps hotline"],
+    "section": "Section 5.1"
+  },
+  {
+    "id": "q11",
+    "question": "How long must LLM audit logs and retrieval metrics be retained?",
+    "expected_keywords": ["90 days", "central audit logs", "retrieval latency"],
+    "section": "Section 5.2"
+  },
+  {
+    "id": "q12",
+    "question": "What encryption standard is required for all cloud LLM API requests?",
+    "expected_keywords": ["TLS 1.3", "corporate gateways"],
+    "section": "Section 2.1"
+  },
+  {
+    "id": "q13",
+    "question": "Where must local LLM model weights reside on developer workstations?",
+    "expected_keywords": ["BitLocker-encrypted", "internal NVMe drives", "public network interfaces"],
+    "section": "Section 2.2"
+  },
+  {
+    "id": "q14",
+    "question": "How is user access controlled for internal vector databases?",
+    "expected_keywords": ["Entra ID", "Azure AD", "authenticated engineering staff"],
+    "section": "Section 3.2"
+  },
+  {
+    "id": "q15",
+    "question": "What telemetry metrics must be recorded during each LLM query?",
+    "expected_keywords": ["prompt token lengths", "retrieval latency", "model names"],
+    "section": "Section 5.2"
+  }
+]

@@ -1,0 +1,44 @@
+# Enterprise Generative AI & Engineering Security Policy (v2.4)
+Effective Date: March 1, 2026 | Document ID: SEC-POL-2026-08
+Classification: Internal Restricted
+
+## Section 1: Overview and Purpose
+This document establishes binding engineering standards for using Generative Artificial Intelligence (GenAI), Large Language Models (LLMs), and automated coding agents across corporate development environments. The objective is to maximize engineering productivity while strictly safeguarding intellectual property, confidential customer data, and system integrity.
+
+## Section 2: Approved and Prohibited Model Deployments
+2.1 Approved Cloud APIs:
+Engineering personnel may only invoke approved commercial LLM APIs via official corporate gateways with data logging enabled. Approved endpoints include Google Gemini (Enterprise Tier via API key) and Microsoft Foundry SDK.
+All cloud requests must enforce TLS 1.3 encryption and transit through the enterprise proxy.
+
+2.2 Local and On-Premises LLMs:
+For air-gapped development, offline prototyping, or handling internal technical documentation, developers may run quantized local models using Ollama or vLLM. Approved architectures include Qwen 2.5 (7B/14B quantized) and Llama 3. Local weights must reside on BitLocker-encrypted internal NVMe drives and must never be exposed to public network interfaces.
+
+2.3 Prohibited Services:
+Uploading uncompiled proprietary source code or system architecture diagrams to unauthorized third-party consumer web interfaces (such as unauthenticated web bots or unvetted freeware tools) is strictly prohibited.
+
+## Section 3: Data Classification & Customer Privacy
+3.1 Highly Confidential Data (Tier 1):
+Customer Personally Identifiable Information (PII), payment card credentials, user session tokens, and production database dumps must NEVER be supplied into prompt contexts, embedding ingestion pipelines, or fine-tuning datasets.
+
+3.2 Internal Technical Documentation (Tier 2):
+Internal architecture guides, API specifications, and standard operating procedures (SOPs) may be indexed into internal Retrieval-Augmented Generation (RAG) vector databases provided that:
+- Chunking windows do not exceed 1024 tokens.
+- Storage volumes enforce AES-256 encryption at rest.
+- Access is restricted to authenticated engineering staff via Entra ID (Azure AD).
+
+## Section 4: Architecture Requirements for Retrieval-Augmented Generation (RAG)
+4.1 Chunking and Ingestion Pipelines:
+All production RAG ingestion pipelines must implement sliding window overlap (minimum 10% overlap) to prevent loss of semantic context across sentence boundaries. Recursive boundary splitting (paragraphs -> sentences -> tokens) is the mandated standard.
+
+4.2 Grounding and Hallucination Mitigation:
+Retrieval pipelines must enforce strict source-grounded system prompts. Models must be explicitly instructed to decline answering if the cosine similarity score of top-k retrieved chunks falls below 0.35, or if the context lacks unambiguous factual backing.
+
+4.3 Output Validation:
+RAG endpoints serving enterprise workflows must validate completions using structured schemas (Pydantic models / strict JSON output) to ensure deterministic field parsing.
+
+## Section 5: Incident Response and Violations
+5.1 Reporting Protocol:
+If an engineer suspects that sensitive customer data or intellectual property has been inadvertently submitted to an unapproved external model, they must file a Security Incident within two (2) hours via the ITSM portal or notify the SecOps hotline immediately.
+
+5.2 Audit Logging:
+All LLM generation queries, prompt token lengths, retrieval latency metrics, and model names must be recorded in central audit logs and retained for 90 days.

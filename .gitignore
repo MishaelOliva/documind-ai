@@ -1,0 +1,29 @@
+# Python & Environment
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.env
+
+# Storage & Data
+data/
+chroma_db/
+*.sqlite3
+*.db
+uploads/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Test & Build
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
