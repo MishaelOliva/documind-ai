@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     # Project Info
-    PROJECT_NAME: str = "Applied AI Document QA & RAG System"
+    PROJECT_NAME: str = "GroundedDoc-AI: Enterprise Document QA & Semantic RAG System"
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api"
 
