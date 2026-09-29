@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     TOP_K_RESULTS: int = 3
     MAX_UPLOAD_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB
 
+    # Grounding guard: refuse to answer when the best cosine similarity is below
+    # this floor. Required by the sample policy (Section 4.2) and honoured here.
+    MIN_SIMILARITY_SCORE: float = 0.35
+
+    # Uploads. A single allow-list shared by the API layer and the document loader
+    # so the two contracts cannot drift apart.
+    ALLOWED_EXTENSIONS: list[str] = [".pdf", ".txt", ".md", ".csv"]
+
     # Storage Paths
     DATA_DIR: Path = BASE_DIR / "data"
     STATIC_DIR: Path = BASE_DIR / "static"
@@ -32,6 +40,11 @@ class Settings(BaseSettings):
     # Host & Port
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
+
+    # CORS. Empty by default: the SPA is served from the same origin, so no
+    # cross-origin access is required and no wildcard is granted implicitly.
+    # Set e.g. CORS_ORIGINS=["http://localhost:5173"] to allow a separate frontend.
+    CORS_ORIGINS: list[str] = []
 
     model_config = SettingsConfigDict(
         env_file=".env",

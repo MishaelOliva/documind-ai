@@ -1,10 +1,14 @@
 """Embedding Engine: Generates dense semantic vectors for text chunks and queries."""
 import hashlib
+import logging
 import re
+import threading
 from typing import List
 import numpy as np
 import httpx
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 class EmbeddingEngine:
     """
@@ -17,19 +21,48 @@ class EmbeddingEngine:
     """
 
     DIMENSION = 384
+    MODEL_NAME = "BAAI/bge-small-en-v1.5"
     _fastembed_model = None
+    _init_lock = threading.Lock()
 
     def __init__(self, provider: str = None):
         self.provider = provider or settings.LLM_PROVIDER
         self._init_fastembed()
 
+    @property
+    def backend_name(self) -> str:
+        """Human-readable name of the embedder that will actually be used."""
+        if self.provider == "gemini" and settings.GEMINI_API_KEY:
+            return "gemini:text-embedding-004"
+        if self.provider == "ollama":
+            return f"ollama:{settings.OLLAMA_MODEL}"
+        if EmbeddingEngine._fastembed_model:
+            return f"fastembed:{EmbeddingEngine.MODEL_NAME}"
+        return "hashing-fallback"
+
     @classmethod
-    def _init_fastembed(cls):
-        if cls._fastembed_model is None:
+    def _init_fastembed(cls) -> None:
+        """
+        Loads the ONNX model once per process.
+
+        The model is cached on the class and guarded by a lock, because FastAPI
+        serves requests from a thread pool: the previous check-then-assign left a
+        window where two threads both paid the ~130 MB model load.
+        """
+        if cls._fastembed_model is not None:
+            return
+        with cls._init_lock:
+            if cls._fastembed_model is not None:
+                return
             try:
                 from fastembed import TextEmbedding
-                cls._fastembed_model = TextEmbedding("BAAI/bge-small-en-v1.5")
-            except Exception:
+                cls._fastembed_model = TextEmbedding(cls.MODEL_NAME)
+            except Exception as e:
+                logger.warning(
+                    "FastEmbed unavailable (%s); using deterministic hashing embedder. "
+                    "Install `fastembed` and pre-cache the model for full semantic quality.",
+                    e,
+                )
                 cls._fastembed_model = False
 
     def embed_text(self, text: str) -> List[float]:
@@ -47,14 +80,14 @@ class EmbeddingEngine:
             try:
                 return self._embed_gemini(texts)
             except Exception as e:
-                print(f"[Warning] Gemini embedding failed: {e}. Falling back to internal engine.")
+                logger.warning("Gemini embedding failed (%s); falling back to internal engine.", e)
 
         # Try Ollama if configured
         if self.provider == "ollama":
             try:
                 return self._embed_ollama(texts)
             except Exception as e:
-                print(f"[Warning] Ollama embedding failed: {e}. Falling back to internal engine.")
+                logger.warning("Ollama embedding failed (%s); falling back to internal engine.", e)
 
         # Try FastEmbed SOTA ONNX model
         if self._fastembed_model:
@@ -66,7 +99,7 @@ class EmbeddingEngine:
                     results.append((vec / norm).tolist() if norm > 0 else vec.tolist())
                 return results
             except Exception as e:
-                print(f"[Warning] FastEmbed inference failed: {e}. Falling back to hashing embedder.")
+                logger.warning("FastEmbed inference failed (%s); falling back to hashing embedder.", e)
 
         # Robust built-in dense hashing embedder fallback
         return [self._embed_dense_hash(t) for t in texts]

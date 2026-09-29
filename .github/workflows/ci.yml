@@ -2,16 +2,30 @@ name: CI
 
 on:
   push:
-    branches: [ main, master, docs/overhaul ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.12"]
+        exclude:
+          # One Windows leg is enough to catch path-separator bugs without
+          # doubling the matrix for a project with no platform-specific code.
+          - os: windows-latest
+            python-version: "3.11"
 
     steps:
       - name: Checkout repository
@@ -21,18 +35,54 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt ruff
+          pip install -r requirements-dev.txt
 
-      - name: Run linter (ruff)
+      - name: Lint
         run: ruff check .
 
-      - name: Run unit and integration tests
-        run: pytest -v
+      - name: Test
+        run: pytest -q --cov=app --cov-report=term-missing --cov-report=xml
 
-      - name: Run retrieval benchmark suite (offline provider)
-        run: python eval/benchmark.py
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}-${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      # Guards against a regression in retrieval quality or the grounding guard.
+      # FastEmbed is pinned to the same embedder used for the reported numbers.
+      - name: Retrieval benchmark
+        run: python eval/benchmark.py --markdown
+
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report
+          path: eval/BENCHMARK.md

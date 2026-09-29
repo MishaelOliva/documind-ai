@@ -33,14 +33,64 @@ body {
   background-color: var(--bg-page);
   color: var(--text-main);
   line-height: 1.5;
-  height: 100vh;
+  /* dvh tracks the collapsing mobile toolbar; vh does not. */
+  height: 100dvh;
   overflow: hidden;
 }
 
 .app-layout {
   display: flex;
-  height: 100vh;
-  width: 100vw;
+  height: 100dvh;
+  /* width:100vw includes the classic scrollbar width and causes horizontal
+     overflow, so the flex children size themselves instead. */
+  width: 100%;
+}
+
+/* Keyboard users get a visible, consistent focus ring on every control. */
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 10px 16px;
+  background: var(--primary-navy);
+  color: #fff;
+  border-radius: 0 0 var(--radius-sm) 0;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Sidebar */
@@ -99,18 +149,29 @@ body {
 }
 
 .drop-zone {
+  /* Reset button defaults: this control is a <button> so it is focusable and
+     operable from the keyboard, but must still look like a drop target. */
+  display: block;
+  width: 100%;
+  font-family: inherit;
   border: 2px dashed #cbd5e1;
   border-radius: var(--radius-md);
   padding: 20px 14px;
   text-align: center;
   cursor: pointer;
   background-color: #f8fafc;
-  transition: all 0.2s ease;
+  color: var(--text-main);
+  transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 
 .drop-zone:hover, .drop-zone.drag-over {
   border-color: var(--primary-blue);
   background-color: #f0f7ff;
+}
+
+.drop-zone:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
 }
 
 .upload-icon {
@@ -209,17 +270,24 @@ body {
 }
 
 .doc-sub {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 
 .btn-icon-danger {
   background: none;
   border: none;
-  color: #94a3b8;
+  /* #64748b rather than #94a3b8: the lighter grey sat at ~2.5:1 on the row
+     background, failing WCAG AA for a control this small. */
+  color: #64748b;
   cursor: pointer;
-  padding: 4px;
+  /* 24x24 minimum target size per WCAG 2.2. */
+  min-width: 24px;
+  min-height: 24px;
+  font-size: 18px;
+  line-height: 1;
   border-radius: 4px;
+  flex-shrink: 0;
 }
 
 .btn-icon-danger:hover {
@@ -289,10 +357,17 @@ body {
 }
 
 .stat-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background-color: var(--accent-green);
+  /* A darker green than --accent-green: the original #10b981 sat at ~2.5:1 on
+     white and failed the 3:1 non-text contrast requirement. */
+  background-color: #059669;
+  flex-shrink: 0;
+}
+
+.stat-dot.offline {
+  background-color: var(--accent-red);
 }
 
 .docs-link {
@@ -312,7 +387,8 @@ body {
   display: flex;
   flex-direction: column;
   background-color: var(--bg-page);
-  height: 100vh;
+  min-width: 0; /* lets the flex child shrink instead of forcing overflow */
+  height: 100dvh;
 }
 
 .chat-header {
@@ -356,6 +432,8 @@ body {
 .messages-container {
   flex: 1;
   overflow-y: auto;
+  /* Stops scroll chaining to the page when the message list hits its end. */
+  overscroll-behavior: contain;
   padding: 24px 28px;
   display: flex;
   flex-direction: column;
@@ -556,6 +634,9 @@ body {
   color: #475569;
   font-style: italic;
   line-height: 1.4;
+  /* Now a <blockquote>; reset the UA margins. */
+  margin: 0;
+  padding: 0;
 }
 
 /* Chat Input Bar */
@@ -572,11 +653,12 @@ body {
 
 .input-wrapper {
   display: flex;
+  gap: 8px;
   background: #f8fafc;
   border: 1.5px solid var(--border-color);
   border-radius: var(--radius-md);
   padding: 6px 8px 6px 14px;
-  transition: all 0.2s;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
   align-items: center;
 }
 
@@ -603,17 +685,23 @@ textarea#questionInput {
   color: #fff;
   border: none;
   border-radius: var(--radius-sm);
-  width: 38px;
-  height: 38px;
+  min-width: 40px;
+  min-height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  flex-shrink: 0;
   transition: background-color 0.2s;
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: var(--primary-blue);
+}
+
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .btn-primary svg {
@@ -624,6 +712,8 @@ textarea#questionInput {
 .input-footer {
   display: flex;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-top: 6px;
   font-size: 11px;
   color: var(--text-muted);
@@ -631,4 +721,109 @@ textarea#questionInput {
 
 .hidden {
   display: none !important;
+}
+
+/* ---------------------------------------------------------------- new pieces */
+
+.section-heading {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.assistant-body .muted {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Shown above a refusal so the user understands the silence is deliberate. */
+.refusal-note {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  margin-bottom: 8px;
+}
+
+.badge {
+  background: #e0f2fe;
+  color: #0369a1;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.doc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --------------------------------------------------------------- responsive */
+
+/* The sidebar is 320px fixed, which left a phone-width viewport with almost no
+   room for the conversation. Below these breakpoints the two panes stack. */
+@media (max-width: 900px) {
+  .app-layout {
+    flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    overflow: visible;
+  }
+
+  .main-chat {
+    height: auto;
+    min-height: 70dvh;
+  }
+
+  .messages-container {
+    padding: 16px;
+    min-height: 45dvh;
+  }
+
+  .chat-header,
+  .chat-input-bar {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .chat-header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .doc-list {
+    max-height: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .chat-header h1 {
+    font-size: 15px;
+  }
+
+  .quick-prompts .qp-btn {
+    width: 100%;
+  }
 }

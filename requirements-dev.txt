@@ -1,0 +1,7 @@
+# Tooling for development and CI. Kept out of requirements.txt so the runtime
+# dependency set stays minimal for anyone who just wants to run the app.
+-r requirements.txt
+
+pytest>=8.0.0,<10.0.0
+pytest-cov>=5.0.0,<8.0.0
+ruff>=0.6.0,<1.0.0

@@ -1,31 +1,97 @@
 /**
- * Applied AI Document QA & RAG System - Frontend Application Logic
+ * DocuMind - frontend application logic.
+ *
+ * Design notes:
+ * - All server-supplied strings are inserted with `textContent` or via explicit
+ *   `createElement` calls. No `innerHTML` is used with untrusted data, so the
+ *   stored-XSS class of bug cannot occur here even if backend sanitisation regresses.
+ * - Requests check `res.ok` before parsing, and parse defensively, so a proxy 502
+ *   surfaces its real status instead of a JSON syntax error.
+ * - In-flight queries are guarded and cancellable; a hung request cannot leave the
+ *   UI permanently stuck.
  */
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Elements
-  const dropZone = document.getElementById("dropZone");
-  const fileInput = document.getElementById("fileInput");
-  const uploadStatus = document.getElementById("uploadStatus");
-  const documentList = document.getElementById("documentList");
-  const docCountBadge = document.getElementById("docCountBadge");
-  const providerSelect = document.getElementById("providerSelect");
-  const topKSlider = document.getElementById("topKSlider");
-  const topKValue = document.getElementById("topKValue");
-  const queryForm = document.getElementById("queryForm");
-  const questionInput = document.getElementById("questionInput");
-  const sendBtn = document.getElementById("sendBtn");
-  const messagesContainer = document.getElementById("messagesContainer");
-  const welcomeCard = document.getElementById("welcomeCard");
-  const clearChatBtn = document.getElementById("clearChatBtn");
-  const systemStatusText = document.getElementById("systemStatusText");
-  const latencySummary = document.getElementById("latencySummary");
+  const $ = (id) => document.getElementById(id);
 
-  // State
-  let documents = [];
+  const els = {
+    dropZone: $("dropZone"),
+    fileInput: $("fileInput"),
+    uploadStatus: $("uploadStatus"),
+    documentList: $("documentList"),
+    docCountBadge: $("docCountBadge"),
+    providerSelect: $("providerSelect"),
+    topKSlider: $("topKSlider"),
+    topKValue: $("topKValue"),
+    queryForm: $("queryForm"),
+    questionInput: $("questionInput"),
+    sendBtn: $("sendBtn"),
+    cancelBtn: $("cancelBtn"),
+    messages: $("messagesContainer"),
+    welcome: $("welcomeCard"),
+    clearChatBtn: $("clearChatBtn"),
+    systemStatusText: $("systemStatusText"),
+    statusDot: $("statusDot"),
+    latencySummary: $("latencySummary"),
+  };
 
-  // Init
+  const API_BASE = document.body.dataset.apiBase || "/api";
+
+  const state = {
+    documents: [],
+    inFlight: null, // AbortController for the active query, if any
+    uploadTimer: null,
+    dragDepth: 0,
+  };
+
   init();
+
+  // ------------------------------------------------------------------ helpers
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  /** Reads a JSON body, tolerating non-JSON error pages from proxies. */
+  async function readJson(res) {
+    const text = await res.text();
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }
+
+  async function apiFetch(path, options = {}) {
+    const res = await fetch(`${API_BASE}${path}`, options);
+    const data = await readJson(res);
+    if (!res.ok) {
+      const detail = (data && data.detail) || `HTTP ${res.status}`;
+      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return data;
+  }
+
+  function formatCharCount(chars) {
+    if (chars === null || chars === undefined) return "-";
+    if (chars < 1000) return `${chars} chars`;
+    return `${(chars / 1000).toFixed(1)}k chars`;
+  }
+
+  function scrollToBottom() {
+    els.messages.scrollTop = els.messages.scrollHeight;
+  }
+
+  function setStatus(text, tone) {
+    els.uploadStatus.textContent = text;
+    els.uploadStatus.className = tone ? tone : "";
+  }
+
+  // --------------------------------------------------------------------- init
 
   function init() {
     setupEventListeners();
@@ -34,337 +100,392 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function setupEventListeners() {
-    // Slider
-    topKSlider.addEventListener("input", (e) => {
-      topKValue.textContent = e.target.value;
+    els.topKSlider.addEventListener("input", (e) => {
+      els.topKValue.textContent = e.target.value;
     });
 
-    // Dropzone
-    dropZone.addEventListener("click", () => fileInput.click());
-    dropZone.addEventListener("dragover", (e) => {
+    // Drop zone. It is a <button> in the markup so it is focusable and operable
+    // from the keyboard; click and keydown would both be redundant if it were a div.
+    els.dropZone.addEventListener("click", () => els.fileInput.click());
+
+    // dragenter/dragleave fire for every descendant, so a depth counter is needed
+    // or the highlight flickers whenever the pointer crosses a child element.
+    els.dropZone.addEventListener("dragenter", (e) => {
       e.preventDefault();
-      dropZone.classList.add("drag-over");
+      state.dragDepth += 1;
+      els.dropZone.classList.add("drag-over");
     });
-    dropZone.addEventListener("dragleave", () => {
-      dropZone.classList.remove("drag-over");
-    });
-    dropZone.addEventListener("drop", (e) => {
+    els.dropZone.addEventListener("dragover", (e) => {
       e.preventDefault();
-      dropZone.classList.remove("drag-over");
-      if (e.dataTransfer.files.length > 0) {
-        handleFileUpload(e.dataTransfer.files[0]);
-      }
+      e.dataTransfer.dropEffect = "copy";
+    });
+    els.dropZone.addEventListener("dragleave", (e) => {
+      e.preventDefault();
+      state.dragDepth = Math.max(0, state.dragDepth - 1);
+      if (state.dragDepth === 0) els.dropZone.classList.remove("drag-over");
+    });
+    els.dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      state.dragDepth = 0;
+      els.dropZone.classList.remove("drag-over");
+      if (e.dataTransfer.files.length > 0) handleFileUpload(e.dataTransfer.files[0]);
     });
 
-    fileInput.addEventListener("change", (e) => {
-      if (e.target.files.length > 0) {
-        handleFileUpload(e.target.files[0]);
-      }
+    // Prevent the browser from navigating away when a file is dropped outside
+    // the drop zone, which would destroy all UI state.
+    window.addEventListener("dragover", (e) => e.preventDefault());
+    window.addEventListener("drop", (e) => e.preventDefault());
+
+    els.fileInput.addEventListener("change", (e) => {
+      if (e.target.files.length > 0) handleFileUpload(e.target.files[0]);
     });
 
-    // Query Form
-    queryForm.addEventListener("submit", handleQuerySubmit);
+    els.queryForm.addEventListener("submit", handleQuerySubmit);
 
-    // Auto-resize textarea
-    questionInput.addEventListener("keydown", (e) => {
+    els.questionInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        queryForm.dispatchEvent(new Event("submit"));
+        // requestSubmit runs constraint validation; dispatchEvent does not, which
+        // would silently bypass the `required` attribute.
+        els.queryForm.requestSubmit();
       }
     });
 
-    // Quick Prompts
     document.querySelectorAll(".qp-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const q = btn.getAttribute("data-q");
-        questionInput.value = q;
-        queryForm.dispatchEvent(new Event("submit"));
+        els.questionInput.value = btn.dataset.q || "";
+        els.queryForm.requestSubmit();
       });
     });
 
-    // Clear Chat
-    clearChatBtn.addEventListener("click", () => {
-      messagesContainer.innerHTML = "";
-      messagesContainer.appendChild(welcomeCard);
-      welcomeCard.classList.remove("hidden");
-      latencySummary.textContent = "";
+    els.cancelBtn.addEventListener("click", cancelQuery);
+
+    els.clearChatBtn.addEventListener("click", () => {
+      els.messages.replaceChildren(els.welcome);
+      els.welcome.classList.remove("hidden");
+      els.latencySummary.textContent = "";
     });
   }
 
-  // Health check
+  // ------------------------------------------------------------------- health
+
   async function fetchHealth() {
     try {
-      const res = await fetch("/api/health");
-      if (res.ok) {
-        const data = await res.json();
-        systemStatusText.textContent = `Online • ${data.total_chunks} chunks`;
-      }
+      const data = await apiFetch("/health");
+      els.systemStatusText.textContent = `Online • ${data.total_chunks} chunks indexed`;
+      els.statusDot.classList.remove("offline");
+
+      // Reconcile the controls with server truth instead of assuming defaults.
+      if (data.active_provider) els.providerSelect.value = data.active_provider;
+      els.dropZone.dataset.embedding = data.embedding_backend || "";
     } catch (e) {
-      systemStatusText.textContent = "Offline";
+      els.systemStatusText.textContent = "Offline";
+      els.statusDot.classList.add("offline");
     }
   }
 
-  // Fetch Documents
+  // ---------------------------------------------------------------- documents
+
   async function fetchDocuments() {
     try {
-      const res = await fetch("/api/documents");
-      if (res.ok) {
-        documents = await res.json();
-        renderDocuments();
-      }
+      state.documents = (await apiFetch("/documents")) || [];
+      renderDocuments();
     } catch (err) {
       console.error("Failed to fetch documents:", err);
+      els.documentList.replaceChildren(
+        el("div", "empty-docs", "Could not reach the API. Is the server running?")
+      );
     }
   }
 
   function renderDocuments() {
-    docCountBadge.textContent = documents.length;
-    if (documents.length === 0) {
-      documentList.innerHTML = `<div class="empty-docs">No documents indexed yet. Upload a PDF/TXT to get started.</div>`;
+    els.docCountBadge.textContent = state.documents.length;
+    els.documentList.replaceChildren();
+
+    if (state.documents.length === 0) {
+      els.documentList.appendChild(
+        el("div", "empty-docs", "No documents indexed yet. Upload a PDF, TXT, MD or CSV to begin.")
+      );
       return;
     }
 
-    documentList.innerHTML = documents
-      .map(
-        (doc) => `
-      <div class="doc-item" data-id="${doc.doc_id}">
-        <div class="doc-meta">
-          <span class="doc-name" title="${doc.filename}">${escapeHtml(doc.filename)}</span>
-          <span class="doc-sub">${doc.chunk_count} chunks • ${formatBytes(doc.char_count)} chars</span>
-        </div>
-        <button class="btn-icon-danger" title="Delete document" onclick="window.deleteDoc('${doc.doc_id}')">
-          &times;
-        </button>
-      </div>
-    `
-      )
-      .join("");
+    for (const doc of state.documents) {
+      const item = el("div", "doc-item");
+      item.dataset.id = doc.doc_id;
+
+      const meta = el("div", "doc-meta");
+
+      const name = el("span", "doc-name", doc.filename);
+      // setAttribute, not an interpolated string: this is the sink that made the
+      // previous version vulnerable to attribute injection via the filename.
+      name.title = doc.filename;
+      meta.appendChild(name);
+
+      const chunkCount = Number(doc.chunk_count) || 0;
+      const sub = el(
+        "span",
+        "doc-sub",
+        `${chunkCount} chunk${chunkCount === 1 ? "" : "s"} • ${formatCharCount(doc.char_count)}`
+      );
+      meta.appendChild(sub);
+      item.appendChild(meta);
+
+      const del = el("button", "btn-icon-danger", "×");
+      del.type = "button";
+      del.title = `Delete ${doc.filename}`;
+      del.setAttribute("aria-label", `Delete document ${doc.filename}`);
+      del.addEventListener("click", () => handleDelete(doc));
+      item.appendChild(del);
+
+      els.documentList.appendChild(item);
+    }
   }
 
-  window.deleteDoc = async function (docId) {
-    if (!confirm("Are you sure you want to remove this document from the vector index?")) return;
+  async function handleDelete(doc) {
+    const ok = window.confirm(`Remove "${doc.filename}" and its embeddings from the index?`);
+    if (!ok) return;
     try {
-      const res = await fetch(`/api/documents/${docId}`, { method: "DELETE" });
-      if (res.ok) {
-        await fetchDocuments();
-        await fetchHealth();
-      }
+      await apiFetch(`/documents/${encodeURIComponent(doc.doc_id)}`, { method: "DELETE" });
+      await fetchDocuments();
+      await fetchHealth();
     } catch (e) {
-      alert("Failed to delete document.");
+      setStatus(`Could not delete ${doc.filename}: ${e.message}`, "error");
     }
-  };
+  }
 
-  // Upload handler
+  // ------------------------------------------------------------------ uploads
+
+  function scheduleStatusClear() {
+    if (state.uploadTimer) clearTimeout(state.uploadTimer);
+    state.uploadTimer = setTimeout(() => {
+      els.uploadStatus.className = "hidden";
+      state.uploadTimer = null;
+    }, 4000);
+  }
+
   async function handleFileUpload(file) {
-    uploadStatus.classList.remove("hidden", "success", "error");
-    uploadStatus.textContent = `Ingesting & indexing "${file.name}"...`;
+    if (state.uploadTimer) {
+      clearTimeout(state.uploadTimer);
+      state.uploadTimer = null;
+    }
+    setStatus(`Ingesting and indexing "${file.name}"…`, "info");
 
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.detail || "Upload failed");
-      }
-
-      uploadStatus.classList.add("success");
-      uploadStatus.textContent = `Indexed ${data.document.chunk_count} chunks from ${file.name}`;
-      fileInput.value = "";
-      await fetchDocuments();
-      await fetchHealth();
-
-      setTimeout(() => {
-        uploadStatus.classList.add("hidden");
-      }, 4000);
+      const data = await apiFetch("/upload", { method: "POST", body: formData });
+      setStatus(
+        `Indexed ${data.document.chunk_count} chunks from ${file.name}`,
+        "success"
+      );
+      scheduleStatusClear();
+      await Promise.all([fetchDocuments(), fetchHealth()]);
     } catch (err) {
-      uploadStatus.classList.add("error");
-      uploadStatus.textContent = `Error: ${err.message}`;
+      setStatus(`Upload failed: ${err.message}`, "error");
+    } finally {
+      // Reset on both paths. Leaving a stale value means re-picking the same
+      // failed file fires no change event and appears to do nothing.
+      els.fileInput.value = "";
     }
   }
 
-  // Handle Query
+  // ------------------------------------------------------------------- queries
+
+  function setBusy(busy) {
+    els.sendBtn.disabled = busy;
+    els.cancelBtn.hidden = !busy;
+    els.sendBtn.setAttribute("aria-busy", String(busy));
+  }
+
+  function cancelQuery() {
+    if (state.inFlight) {
+      state.inFlight.abort();
+      state.inFlight = null;
+    }
+  }
+
   async function handleQuerySubmit(e) {
     e.preventDefault();
-    const query = questionInput.value.trim();
+    if (state.inFlight) return; // guard: Enter, quick prompts and the button can all fire
+
+    const query = els.questionInput.value.trim();
     if (!query) return;
 
-    if (documents.length === 0) {
-      alert("Please index at least one document before asking questions.");
+    if (state.documents.length === 0) {
+      setStatus("Index at least one document before asking questions.", "error");
+      els.questionInput.focus();
       return;
     }
 
-    // Hide welcome card
-    welcomeCard.classList.add("hidden");
-
-    // Append User Message
+    els.welcome.classList.add("hidden");
     appendUserMessage(query);
-    questionInput.value = "";
-    sendBtn.disabled = true;
+    els.questionInput.value = "";
 
-    // Append Assistant Loading Skeleton
-    const loadingCardId = "loading-" + Date.now();
-    appendLoadingMessage(loadingCardId);
+    const controller = new AbortController();
+    state.inFlight = controller;
+    setBusy(true);
+
+    const loadingRow = appendLoadingMessage();
 
     try {
-      const payload = {
-        question: query,
-        top_k: parseInt(topKSlider.value, 10),
-        provider: providerSelect.value,
-      };
-
-      const res = await fetch("/api/query", {
+      const data = await apiFetch("/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          question: query,
+          top_k: Number(els.topKSlider.value),
+          provider: els.providerSelect.value,
+        }),
+        signal: controller.signal,
       });
-
-      const data = await res.json();
-      removeElement(loadingCardId);
-
-      if (!res.ok) {
-        appendAssistantMessage({
-          answer: `Error: ${data.detail || "Query processing failed."}`,
-          model_name: "Error",
-          retrieval_latency_ms: 0,
-          generation_latency_ms: 0,
-          total_latency_ms: 0,
-          citations: [],
-        });
-        return;
-      }
-
+      loadingRow.remove();
       appendAssistantMessage(data);
-      latencySummary.textContent = `Last query: ${data.total_latency_ms}ms (${data.model_name})`;
     } catch (err) {
-      removeElement(loadingCardId);
+      loadingRow.remove();
+      const aborted = err.name === "AbortError";
       appendAssistantMessage({
-        answer: `Network Error: ${err.message}`,
-        model_name: "Error",
-        retrieval_latency_ms: 0,
+        answer: aborted
+          ? "Query cancelled."
+          : `Request failed: ${err.message}`,
+        model_name: aborted ? "Cancelled" : "Error",
+        is_grounded: false,
+        citations: [],
+        embedding_latency_ms: 0,
+        search_latency_ms: 0,
         generation_latency_ms: 0,
         total_latency_ms: 0,
-        citations: [],
       });
     } finally {
-      sendBtn.disabled = false;
-      questionInput.focus();
+      state.inFlight = null;
+      setBusy(false);
+      els.questionInput.focus();
     }
   }
 
   function appendUserMessage(text) {
-    const row = document.createElement("div");
-    row.className = "message-row user";
-    row.innerHTML = `<div class="user-bubble">${escapeHtml(text)}</div>`;
-    messagesContainer.appendChild(row);
+    const row = el("div", "message-row user");
+    row.appendChild(el("div", "user-bubble", text));
+    els.messages.appendChild(row);
     scrollToBottom();
   }
 
-  function appendLoadingMessage(id) {
-    const row = document.createElement("div");
-    row.className = "message-row assistant";
-    row.id = id;
-    row.innerHTML = `
-      <div class="assistant-card">
-        <div class="assistant-header">
-          <span class="assistant-tag">&#9881; Retrieving & Synthesizing...</span>
-        </div>
-        <div class="assistant-body" style="color:#888;">
-          Searching vector database and generating source-grounded response...
-        </div>
-      </div>
-    `;
-    messagesContainer.appendChild(row);
+  function appendLoadingMessage() {
+    const row = el("div", "message-row assistant");
+    row.setAttribute("aria-hidden", "true");
+
+    const card = el("div", "assistant-card");
+    const header = el("div", "assistant-header");
+    header.appendChild(el("span", "assistant-tag", "Retrieving and synthesising…"));
+    card.appendChild(header);
+    card.appendChild(
+      el("div", "assistant-body muted", "Searching the vector index and building a grounded response.")
+    );
+    row.appendChild(card);
+    els.messages.appendChild(row);
     scrollToBottom();
+    return row;
   }
 
   function appendAssistantMessage(data) {
-    const row = document.createElement("div");
-    row.className = "message-row assistant";
+    const row = el("div", "message-row assistant");
+    const card = el("div", "assistant-card");
 
-    const citationsHtml =
-      data.citations && data.citations.length > 0
-        ? `
-      <div class="citations-box">
-        <button class="citations-toggle" onclick="this.nextElementSibling.classList.toggle('hidden')">
-          &#128269; View ${data.citations.length} Grounded Context Source(s) &darr;
-        </button>
-        <div class="citations-list hidden">
-          ${data.citations
-            .map(
-              (c) => `
-            <div class="citation-card">
-              <div class="citation-header">
-                <span>${escapeHtml(c.source_name)} (Page ${c.page_number}, Chunk #${c.chunk_index})</span>
-                <span class="similarity-badge">${(c.similarity_score * 100).toFixed(1)}% Match</span>
-              </div>
-              <div class="citation-snippet">"${escapeHtml(c.snippet)}"</div>
-            </div>
-          `
-            )
-            .join("")}
-        </div>
-      </div>
-    `
-        : "";
+    // --- header: model tag + latency pills
+    const header = el("div", "assistant-header");
+    header.appendChild(el("span", "assistant-tag", data.model_name || "Response"));
 
-    row.innerHTML = `
-      <div class="assistant-card">
-        <div class="assistant-header">
-          <span class="assistant-tag">&#10024; ${escapeHtml(data.model_name)}</span>
-          <div class="latency-pills">
-            <span class="pill" title="Vector retrieval time">Retrieval: ${data.retrieval_latency_ms}ms</span>
-            <span class="pill" title="Generation time">Gen: ${data.generation_latency_ms}ms</span>
-            <span class="pill success" title="Total round-trip time">Total: ${data.total_latency_ms}ms</span>
-          </div>
-        </div>
-        <div class="assistant-body">
-          ${formatAnswer(data.answer)}
-        </div>
-        ${citationsHtml}
-      </div>
-    `;
+    const pills = el("div", "latency-pills");
+    const addPill = (label, value, title, cls) => {
+      const p = el("span", cls ? `pill ${cls}` : "pill", `${label} ${value}ms`);
+      p.title = title;
+      pills.appendChild(p);
+    };
+    addPill("Embed", data.embedding_latency_ms, "Query embedding (transformer inference)", "");
+    addPill("Search", data.search_latency_ms, "Vector similarity search only", "");
+    addPill("Gen", data.generation_latency_ms, "Generation time", "");
+    addPill("Total", data.total_latency_ms, "Total round-trip time", "success");
+    header.appendChild(pills);
+    card.appendChild(header);
 
-    messagesContainer.appendChild(row);
+    // --- body
+    const grounded = data.is_grounded !== false;
+    const body = el("div", "assistant-body");
+    if (!grounded) body.appendChild(el("p", "refusal-note", "No sufficiently relevant context found."));
+    body.appendChild(renderAnswer(data.answer || ""));
+    card.appendChild(body);
+
+    // --- citations
+    if (Array.isArray(data.citations) && data.citations.length > 0) {
+      card.appendChild(buildCitations(data.citations));
+    }
+
+    row.appendChild(card);
+    els.messages.appendChild(row);
     scrollToBottom();
   }
 
-  function formatAnswer(text) {
-    // Converts [Source: ...] citations to badges
-    const escaped = escapeHtml(text);
-    return escaped.replace(
-      /\[Source:\s*([^,\]]+)(?:,\s*Page:\s*(\d+))?\]/gi,
-      '<span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:600;">[Source: $1$2 ? ", Page: " + $2 : ""]</span>'
+  function buildCitations(citations) {
+    const box = el("div", "citations-box");
+
+    const toggle = el(
+      "button",
+      "citations-toggle",
+      `View ${citations.length} grounded source${citations.length === 1 ? "" : "s"}`
     );
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", "false");
+
+    const list = el("div", "citations-list hidden");
+    for (const c of citations) {
+      const card = el("div", "citation-card");
+      const head = el("div", "citation-header");
+      head.appendChild(
+        el("span", null, `${c.source_name} (Page ${c.page_number}, Chunk #${c.chunk_index})`)
+      );
+      head.appendChild(
+        el("span", "similarity-badge", `${(c.similarity_score * 100).toFixed(1)}% match`)
+      );
+      card.appendChild(head);
+      card.appendChild(el("blockquote", "citation-snippet", c.snippet));
+      list.appendChild(card);
+    }
+
+    toggle.addEventListener("click", () => {
+      const expanded = toggle.getAttribute("aria-expanded") === "true";
+      toggle.setAttribute("aria-expanded", String(!expanded));
+      list.classList.toggle("hidden", expanded);
+    });
+
+    box.appendChild(toggle);
+    box.appendChild(list);
+    return box;
   }
 
-  function scrollToBottom() {
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-  }
+  /**
+   * Renders an answer, turning `[Source: name, Page: N]` markers into badges.
+   *
+   * Built as DOM nodes rather than a regex replacement over an HTML string: a
+   * replacement string only interprets `$$`/`$&`/`$1`, so a conditional expression
+   * pasted into one is emitted literally instead of evaluated.
+   */
+  function renderAnswer(text) {
+    const frag = document.createDocumentFragment();
+    const pattern = /\[Source:\s*([^,\]]+?)(?:,\s*Page:\s*(\d+))?\]/gi;
+    let last = 0;
+    let match;
 
-  function removeElement(id) {
-    const el = document.getElementById(id);
-    if (el) el.remove();
-  }
-
-  function escapeHtml(str) {
-    if (!str) return "";
-    return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
-
-  function formatBytes(chars) {
-    if (chars < 1000) return chars + " chars";
-    return (chars / 1000).toFixed(1) + "k chars";
+    while ((match = pattern.exec(text)) !== null) {
+      if (match.index > last) {
+        frag.appendChild(document.createTextNode(text.slice(last, match.index)));
+      }
+      const label = match[2] ? `${match[1]}, Page ${match[2]}` : match[1];
+      frag.appendChild(el("span", "badge", `[Source: ${label}]`));
+      last = pattern.lastIndex;
+    }
+    if (last < text.length) {
+      frag.appendChild(document.createTextNode(text.slice(last)));
+    }
+    return frag;
   }
 });

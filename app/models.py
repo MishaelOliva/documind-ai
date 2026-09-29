@@ -28,13 +28,26 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     question: str
     answer: str
-    provider_used: str
+    provider_used: str = Field(
+        ...,
+        description="Provider that actually produced the answer, after any fallback."
+    )
     model_name: str
-    retrieval_latency_ms: float
+    embedding_latency_ms: float = Field(
+        ..., description="Query embedding (ONNX transformer) inference time."
+    )
+    search_latency_ms: float = Field(..., description="Vector similarity search time only.")
+    retrieval_latency_ms: float = Field(..., description="embedding_latency_ms + search_latency_ms.")
     generation_latency_ms: float
     total_latency_ms: float
     citations: List[Citation]
     retrieved_chunk_count: int
+    top_similarity: float = Field(..., description="Cosine similarity of the best chunk.")
+    is_grounded: bool = Field(
+        ...,
+        description="False when top_similarity fell below MIN_SIMILARITY_SCORE and the "
+        "system refused to answer.",
+    )
 
 class DocumentInfo(BaseModel):
     doc_id: str
@@ -56,3 +69,5 @@ class HealthResponse(BaseModel):
     total_chunks: int
     active_provider: str
     vector_store_type: str
+    embedding_backend: str = Field(..., description="Which embedder is actually loaded.")
+    min_similarity_score: float

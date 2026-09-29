@@ -1,7 +1,8 @@
 """RAG Pipeline: Orchestrates Document Ingestion, Semantic Retrieval, and LLM Generation."""
+import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -15,8 +16,10 @@ from app.rag.loader import DocumentLoader
 from app.rag.chunker import RecursiveChunker
 from app.rag.embeddings import EmbeddingEngine
 from app.rag.vector_store import VectorStore
-from app.rag.generator import LLMGenerator
+from app.rag.generator import LLMGenerator, REFUSAL_ANSWER
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 class RAGPipeline:
     """Complete End-to-End Retrieval-Augmented Generation Pipeline."""
@@ -59,7 +62,7 @@ class RAGPipeline:
             file_type=file_path.suffix.lower(),
             char_count=total_chars,
             chunk_count=len(chunks),
-            upload_timestamp=datetime.utcnow().isoformat() + "Z"
+            upload_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         )
 
         self.vector_store.add_document(doc_info, chunks, embeddings)
@@ -78,19 +81,53 @@ class RAGPipeline:
     ) -> QueryResponse:
         """
         Executes semantic retrieval for the question and generates a grounded response.
+
+        Embedding time and search time are measured separately: they have very
+        different cost profiles (transformer inference vs. a matrix-vector product)
+        and reporting only their sum makes a retrieval benchmark meaningless.
+
+        If the best chunk falls below `settings.MIN_SIMILARITY_SCORE`, the query is
+        answered with an explicit refusal and no citations, rather than being
+        passed to a generator that would be primed to invent something.
         """
         total_start = time.time()
 
-        # Step 1: Embed Query & Retrieve
-        retrieval_start = time.time()
+        # Step 1: Embed the query and retrieve. Timed separately.
+        embedding_start = time.time()
         q_embedding = self.embedder.embed_text(question)
-        retrieved = self.vector_store.search(q_embedding, top_k=top_k)
-        retrieval_latency = (time.time() - retrieval_start) * 1000.0
+        embedding_latency = (time.time() - embedding_start) * 1000.0
 
-        # Step 2: Build Citations
+        search_start = time.time()
+        retrieved = self.vector_store.search(q_embedding, top_k=top_k)
+        search_latency = (time.time() - search_start) * 1000.0
+
+        top_similarity = retrieved[0][1] if retrieved else 0.0
+        is_grounded = bool(retrieved) and top_similarity >= settings.MIN_SIMILARITY_SCORE
+
+        if not is_grounded:
+            logger.info(
+                "Refusing to answer %r: top similarity %.4f < floor %.2f",
+                question, top_similarity, settings.MIN_SIMILARITY_SCORE,
+            )
+            return QueryResponse(
+                question=question,
+                answer=REFUSAL_ANSWER,
+                provider_used="none",
+                model_name="Grounding Guard",
+                embedding_latency_ms=round(embedding_latency, 2),
+                search_latency_ms=round(search_latency, 2),
+                retrieval_latency_ms=round(embedding_latency + search_latency, 2),
+                generation_latency_ms=0.0,
+                total_latency_ms=round((time.time() - total_start) * 1000.0, 2),
+                citations=[],
+                retrieved_chunk_count=0,
+                top_similarity=round(top_similarity, 4),
+                is_grounded=False,
+            )
+
+        # Step 2: Build citations
         citations = []
         for chunk, score in retrieved:
-            # First 180 chars as snippet
             snippet = chunk.content[:180].strip() + ("..." if len(chunk.content) > 180 else "")
             citations.append(
                 Citation(
@@ -104,24 +141,26 @@ class RAGPipeline:
             )
 
         # Step 3: Generate Grounded Answer
-        answer_text, model_name, gen_latency = self.generator.generate_answer(
+        answer_text, provider_used, model_name, gen_latency = self.generator.generate_answer(
             question=question,
             retrieved_chunks=retrieved,
             override_provider=override_provider
         )
 
-        total_latency = (time.time() - total_start) * 1000.0
-
         return QueryResponse(
             question=question,
             answer=answer_text,
-            provider_used=override_provider or settings.LLM_PROVIDER,
+            provider_used=provider_used,
             model_name=model_name,
-            retrieval_latency_ms=round(retrieval_latency, 2),
+            embedding_latency_ms=round(embedding_latency, 2),
+            search_latency_ms=round(search_latency, 2),
+            retrieval_latency_ms=round(embedding_latency + search_latency, 2),
             generation_latency_ms=round(gen_latency, 2),
-            total_latency_ms=round(total_latency, 2),
+            total_latency_ms=round((time.time() - total_start) * 1000.0, 2),
             citations=citations,
-            retrieved_chunk_count=len(retrieved)
+            retrieved_chunk_count=len(retrieved),
+            top_similarity=round(top_similarity, 4),
+            is_grounded=True,
         )
 
     def delete_document(self, doc_id: str) -> bool:
@@ -136,5 +175,7 @@ class RAGPipeline:
         """Returns pipeline and store statistics."""
         stats = self.vector_store.get_stats()
         stats["active_provider"] = settings.LLM_PROVIDER
+        stats["embedding_backend"] = self.embedder.backend_name
         stats["gemini_configured"] = bool(settings.GEMINI_API_KEY)
+        stats["min_similarity_score"] = settings.MIN_SIMILARITY_SCORE
         return stats
