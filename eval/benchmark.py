@@ -17,7 +17,6 @@ if str(base_dir) not in sys.path:
     sys.path.insert(0, str(base_dir))
 
 from app.rag.pipeline import RAGPipeline
-from app.config import settings
 
 def run_benchmark():
     base_dir = Path(__file__).resolve().parent.parent
@@ -116,6 +115,7 @@ def run_benchmark():
     print(f"Top-1 Retrieval Hit Rate:  {top1_acc:.1f}% ({top1_hits}/{total_queries})")
     print(f"Top-3 Retrieval Hit Rate:  {top3_acc:.1f}% ({top3_hits}/{total_queries})")
     print(f"Vector Retrieval Latency:  Mean: {ret_mean:.2f}ms | P50: {ret_p50:.2f}ms | P95: {ret_p95:.2f}ms")
+    print(f"Generation Latency:        Mean: {gen_mean:.2f}ms")
     print(f"Total Pipeline Latency:    Mean: {tot_mean:.2f}ms | P50: {tot_p50:.2f}ms | P95: {tot_p95:.2f}ms")
 
     # Generate Markdown Table Artifact
@@ -135,10 +135,10 @@ def run_benchmark():
 | **Retrieval Latency (P95)** | **{ret_p95:.2f} ms** | &le; 50 ms | &check; Optimal |
 | **End-to-End Latency (P50)**| **{tot_p50:.2f} ms** | &le; 100 ms (Offline) | &check; Optimal |
 
-## Interview Talking Points
-- **Chunking Strategy:** Implemented recursive character splitting with a 500-character window and 10% sliding overlap to prevent token truncation at sentence boundaries.
-- **Embedding Formulation:** Normalized 384-dimensional dense vectors with subword n-gram hashing and cosine similarity search.
-- **Hit Rate Defensibility:** Ground-truth testing over {total_queries} queries verified {top3_acc:.0f}% Top-3 precision, ensuring the generator prompt consistently contains the exact ground truth context.
+## Methodology & Evaluation Notes
+- **Chunking Strategy:** Recursive character splitting with a 500-character window and 10% sliding overlap to prevent token truncation at sentence boundaries.
+- **Embedding Formulation:** 384-dimensional dense vectors (FastEmbed `BAAI/bge-small-en-v1.5` with deterministic subword hashing fallback) and cosine similarity search.
+- **Evaluation Scope:** Ground-truth testing over {total_queries} queries verified {top3_acc:.0f}% Top-3 precision over `{sample_doc_path.name}` ({ingest_res.document.chunk_count} chunks).
 """
     benchmark_md_file = base_dir / "eval" / "BENCHMARK.md"
     with open(benchmark_md_file, "w", encoding="utf-8") as f:
