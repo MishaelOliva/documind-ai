@@ -1,6 +1,4 @@
 """Unit and Integration Tests for RAG Pipeline."""
-import pytest
-from pathlib import Path
 from app.rag.chunker import RecursiveChunker
 from app.rag.embeddings import EmbeddingEngine
 from app.rag.vector_store import VectorStore
@@ -108,3 +106,22 @@ def test_pipeline_end_to_end(tmp_path):
     assert query_res.question == "How long must audit logs be retained?"
     assert len(query_res.citations) >= 1
     assert "90 days" in query_res.citations[0].snippet or "audit logs" in query_res.citations[0].snippet
+
+def test_api_endpoints():
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    health = client.get("/api/health")
+    assert health.status_code == 200
+    data = health.json()
+    assert data["status"] == "healthy"
+
+    # Reject unsupported format
+    res = client.post(
+        "/api/upload",
+        files={"file": ("malicious.exe", b"binary content", "application/octet-stream")}
+    )
+    assert res.status_code == 400
+    assert "Unsupported format" in res.json()["detail"]
+

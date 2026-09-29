@@ -1,5 +1,4 @@
 """Application Configuration and Environment Settings."""
-import os
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -7,14 +6,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     # Project Info
-    PROJECT_NAME: str = "DocuMind: Enterprise Document Intelligence & Semantic Search"
+    PROJECT_NAME: str = "DocuMind"
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api"
 
     # LLM Settings
     LLM_PROVIDER: str = "mock"  # "gemini", "ollama", or "mock"
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-2.0-flash"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:latest"
 
@@ -22,6 +21,7 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 50
     TOP_K_RESULTS: int = 3
+    MAX_UPLOAD_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB
 
     # Storage Paths
     DATA_DIR: Path = BASE_DIR / "data"

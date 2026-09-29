@@ -1,10 +1,8 @@
 """FastAPI Application Entry Point for Applied AI Document QA & RAG System."""
-import os
-import shutil
 from pathlib import Path
 from typing import List
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query, status
+from fastapi import FastAPI, UploadFile, File, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -68,23 +66,36 @@ async def upload_document(file: UploadFile = File(...)):
     Uploads and indexes a document (.pdf, .txt, .md, .csv).
     Extracts text, generates chunks, computes embeddings, and stores in vector database.
     """
+    # Sanitize filename and validate size
+    safe_filename = Path(file.filename or "upload.txt").name
     valid_exts = [".pdf", ".txt", ".md", ".csv"]
-    file_ext = Path(file.filename).suffix.lower()
+    file_ext = Path(safe_filename).suffix.lower()
     if file_ext not in valid_exts:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported format '{file_ext}'. Allowed: {', '.join(valid_exts)}"
         )
 
-    # Save temporary upload
-    temp_path = settings.UPLOAD_DIR / f"temp_{file.filename}"
+    # Save temporary upload with size bound
+    import uuid
+    temp_path = settings.UPLOAD_DIR / f"temp_{uuid.uuid4().hex}_{file_ext}"
+    size = 0
     try:
         with open(temp_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while chunk := await file.read(1024 * 1024):  # 1MB chunks
+                size += len(chunk)
+                if size > settings.MAX_UPLOAD_SIZE_BYTES:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"File exceeds maximum allowed upload size ({settings.MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)} MB)."
+                    )
+                buffer.write(chunk)
 
         # Ingest through RAG pipeline
-        response = pipeline.ingest_document(temp_path, file.filename)
+        response = pipeline.ingest_document(temp_path, safe_filename)
         return response
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     finally:
