@@ -9,7 +9,6 @@ venv/
 
 # Storage & Data
 data/
-chroma_db/
 *.sqlite3
 *.db
 uploads/
