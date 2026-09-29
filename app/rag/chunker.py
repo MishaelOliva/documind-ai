@@ -63,7 +63,7 @@ class RecursiveChunker:
                         candidate = f"{current_chunk}{separator}{part}"
                     else:
                         candidate = part
-                
+
                 # If single part is still larger than chunk_size, split it further
                 if len(candidate) > self.chunk_size:
                     if next_separators:

@@ -1,5 +1,4 @@
 """Document Loader: Extracts clean text and metadata from PDF and text files."""
-import os
 from pathlib import Path
 from typing import List, Dict, Any
 

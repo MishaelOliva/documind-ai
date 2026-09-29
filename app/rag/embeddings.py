@@ -1,5 +1,4 @@
 """Embedding Engine: Generates dense semantic vectors for text chunks and queries."""
-import math
 import hashlib
 import re
 from typing import List
@@ -30,7 +29,7 @@ class EmbeddingEngine:
             try:
                 from fastembed import TextEmbedding
                 cls._fastembed_model = TextEmbedding("BAAI/bge-small-en-v1.5")
-            except Exception as e:
+            except Exception:
                 cls._fastembed_model = False
 
     def embed_text(self, text: str) -> List[float]:

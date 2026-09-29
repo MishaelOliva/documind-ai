@@ -1,10 +1,9 @@
 """Vector Store: In-memory & persisted vector database for chunk embeddings and semantic similarity search."""
 import json
-import os
 from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional
 import numpy as np
-from app.models import DocumentChunk, Citation, DocumentInfo
+from app.models import DocumentChunk, DocumentInfo
 from app.config import settings
 
 class VectorStore:

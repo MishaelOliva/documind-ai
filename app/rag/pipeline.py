@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import List, Optional
 
 from app.models import (
-    DocumentChunk,
     Citation,
     QueryResponse,
     DocumentInfo,

@@ -3,7 +3,7 @@ import re
 import time
 from typing import List, Tuple
 import httpx
-from app.models import DocumentChunk, Citation
+from app.models import DocumentChunk
 from app.config import settings
 
 STRICT_RAG_SYSTEM_PROMPT = """You are an accurate, source-grounded technical AI assistant.
