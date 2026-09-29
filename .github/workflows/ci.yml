@@ -2,30 +2,37 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, docs/overhaul ]
   pull_request:
     branches: [ main, master ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt ruff
 
-      - name: Run unit tests
-        run: pytest
+      - name: Run linter (ruff)
+        run: ruff check .
 
-      - name: Run retrieval benchmark suite
+      - name: Run unit and integration tests
+        run: pytest -v
+
+      - name: Run retrieval benchmark suite (offline provider)
         run: python eval/benchmark.py
