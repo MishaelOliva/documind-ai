@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # LLM Settings
     LLM_PROVIDER: str = "mock"  # "gemini", "ollama", or "mock"
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:latest"
 

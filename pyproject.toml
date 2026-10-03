@@ -13,6 +13,9 @@ authors = [
     {name = "Mishael Oliva", email = "mishael.oliva2002@gmail.com"}
 ]
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100
