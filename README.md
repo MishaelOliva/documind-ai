@@ -246,3 +246,6 @@ rather than from the assistants.
 ## License
 
 [MIT](LICENSE)
+
+---
+*Built by [Mishael Oliva](https://github.com/MishaelOliva) • [LinkedIn](https://www.linkedin.com/in/mishael-oliva-96a31b3a2)*
